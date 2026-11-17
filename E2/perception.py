@@ -20,8 +20,8 @@ KERNEL = np.ones((TAM_KERNEL, TAM_KERNEL), dtype=np.uint8)
 
 # En H (tono), si el minimo supera el maximo, el intervalo cruza por H=0.
 RANGOS_INICIALES = [
-    ("DELANTE", (0, 0, 255), {"H": [170, 10], "S": [85, 255], "V": [60, 255]}),
-    ("ATRAS", (255, 0, 0), {"H": [95, 135], "S": [70, 255], "V": [50, 255]}),
+    ("DELANTE", (255, 0, 0), {"H": [112, 126], "S": [206, 255], "V": [202, 255]}),
+    ("ATRAS", (0, 0, 255), {"H": [170, 10], "S": [85, 255], "V": [60, 255]}),
     ("BALON", (0, 255, 255), {"H": [20, 40], "S": [85, 255], "V": [90, 255]}),
 ]
 
@@ -115,8 +115,8 @@ def calcular_geometria(blobs: List[Optional[Blob]]) -> Optional[Tuple[float, flo
     if delantero is None or trasero is None or balon is None:
         return None
 
-    pr = np.array(trasero.centro, dtype=float)
-    pf = np.array(delantero.centro, dtype=float)
+    pr = np.array(delantero.centro, dtype=float)
+    pf = np.array(trasero.centro, dtype=float)
     pb = np.array(balon.centro, dtype=float)
     h = pf - pr  # Orientacion del robot: posterior -> anterior
     t = pb - pr  # Vector hacia el balon: posterior -> balon
