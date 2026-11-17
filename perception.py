@@ -10,7 +10,7 @@ import numpy as np
 
 
 ANCHO_VENTANA = 1280
-ALTO_VENTANA = 780 + 100  ########## Ajustar alto ventana ##################
+ALTO_VENTANA = 780  # Los textos de la interfaz terminan antes de esta altura
 ANCHO_PANEL = 370
 NOMBRE_VENTANA = "Perception"
 
@@ -21,7 +21,7 @@ KERNEL = np.ones((TAM_KERNEL, TAM_KERNEL), dtype=np.uint8)
 # En H (tono), si el minimo supera el maximo, el intervalo cruza por H=0.
 RANGOS_INICIALES = [
     ("DELANTE", (0, 0, 255), {"H": [170, 10], "S": [85, 255], "V": [60, 255]}),
-    ("ATRÁS", (255, 0, 0), {"H": [95, 135], "S": [70, 255], "V": [50, 255]}),
+    ("ATRAS", (255, 0, 0), {"H": [95, 135], "S": [70, 255], "V": [50, 255]}),
     ("BALON", (0, 255, 255), {"H": [20, 40], "S": [85, 255], "V": [90, 255]}),
 ]
 
@@ -109,6 +109,28 @@ def procesar_imagen(imagen: np.ndarray, colores: List[ColorConfig]):
     return mascaras, blobs
 
 
+def calcular_geometria(blobs: List[Optional[Blob]]) -> Optional[Tuple[float, float]]:
+    # Distancia en px, angulo en grados"""
+    delantero, trasero, balon = blobs  # Orden definido en RANGOS_INICIALES
+    if delantero is None or trasero is None or balon is None:
+        return None
+
+    pr = np.array(trasero.centro, dtype=float)
+    pf = np.array(delantero.centro, dtype=float)
+    pb = np.array(balon.centro, dtype=float)
+    h = pf - pr  # Orientacion del robot: posterior -> anterior
+    t = pb - pr  # Vector hacia el balon: posterior -> balon
+
+    distancia = float(np.linalg.norm(t))
+    if np.linalg.norm(h) < 1e-6 or distancia < 1e-6:
+        return None  # No hay una direccion bien definida
+
+    producto_cruz = h[0] * t[1] - h[1] * t[0]
+    producto_punto = np.dot(h, t)
+    angulo = float(np.degrees(np.arctan2(producto_cruz, producto_punto)))
+    return distancia, angulo
+
+
 def anotar_detecciones(imagen: np.ndarray, colores: List[ColorConfig],
                        blobs: List[Optional[Blob]]) -> np.ndarray:
     salida = imagen.copy()
@@ -122,6 +144,7 @@ def anotar_detecciones(imagen: np.ndarray, colores: List[ColorConfig],
         cx, cy = blob.centro
         color_bgr = color.color_bgr
         cv2.rectangle(salida, (x, y), (x + w - 1, y + h - 1), color_bgr, 2)
+        cv2.circle(salida, (int(cx), int(cy)), 5, color_bgr, -1)
 
         texto = f"({cx:.0f}, {cy:.0f})"
         fuente, escala, grosor = cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2
@@ -168,6 +191,22 @@ def escribir(canvas, texto, x, y, escala=0.50, color=(235, 235, 235), grosor=1):
 
 def limitar(valor, minimo, maximo):
     return max(minimo, min(maximo, valor))
+
+
+def escala_ventana_para_pantalla() -> float:
+    """Reduce la interfaz solo si no cabe en la pantalla actual."""
+    try:
+        import tkinter as tk
+        raiz = tk.Tk()
+        raiz.withdraw()
+        ancho_pantalla = raiz.winfo_screenwidth()
+        alto_pantalla = raiz.winfo_screenheight()
+        raiz.destroy()
+        # Reservar espacio para la barra de tareas y los bordes de la ventana.
+        return max(0.5, min(1.0, (ancho_pantalla - 80) / ANCHO_VENTANA,
+                             (alto_pantalla - 120) / ALTO_VENTANA))
+    except Exception:
+        return 1.0  # Si no hay informacion de pantalla, mantener tamano original.
 
 
 class InterfazPercepcion:
@@ -269,7 +308,7 @@ class InterfazPercepcion:
             imagen[mascara != 0] = color.color_bgr
         return imagen
 
-    def dibujar(self, imagen, mascaras, blobs, pausado, nombre):
+    def dibujar(self, imagen, mascaras, blobs, pausado, nombre, geometria):
         canvas = np.full((ALTO_VENTANA, ANCHO_VENTANA, 3), 34, dtype=np.uint8)
         cv2.rectangle(canvas, (0, 0), (ANCHO_PANEL, ALTO_VENTANA), (48, 49, 54), -1)
         escribir(canvas, "PERCEPTION", 19, 38, 0.70, (255, 255, 255), 2)
@@ -282,13 +321,25 @@ class InterfazPercepcion:
 
         cv2.line(canvas, (20, 649), (ANCHO_PANEL - 20, 649), (98, 98, 102), 1)
 
-        escribir(canvas, self.mensaje[:42], 22, 750, 0.37, (205, 205, 210))
+        # Evitar que el mensaje quede cortado por un limite fijo de caracteres.
+        mensaje = self.mensaje
+        if cv2.getTextSize(mensaje, cv2.FONT_HERSHEY_SIMPLEX, 0.37, 1)[0][0] > ANCHO_PANEL - 44:
+            while cv2.getTextSize(mensaje + "...", cv2.FONT_HERSHEY_SIMPLEX, 0.37, 1)[0][0] > ANCHO_PANEL - 44:
+                mensaje = mensaje[:-1]
+            mensaje += "..."
+        escribir(canvas, mensaje, 22, 750, 0.37, (205, 205, 210))
 
         x_left = ANCHO_PANEL + 23
         escribir(canvas, "[1-3] Color   [V] Vista   [R] Reiniciar HSV   [C] Deshacer clic",
                  x_left, 35, 0.49, (250, 250, 250))
         escribir(canvas, "[ESPACIO] Pausar   [N] Siguiente imagen   [Q/ESC] Salir",
                  x_left, 65, 0.49, (215, 215, 222))
+        if geometria is None:
+            resumen = "Distancia: -- px   |   Angulo: -- (deteccion incompleta)"
+        else:
+            distancia, angulo = geometria
+            resumen = f"Distancia: {distancia:.1f} px   |   Angulo: {angulo:+.1f} grados"
+        escribir(canvas, resumen, x_left, 112, 0.53, (245, 245, 245))
 
         if self.vista == 0:
             mostrada = anotar_detecciones(imagen, self.colores, blobs)
@@ -438,9 +489,13 @@ def main():
 
     interfaz = InterfazPercepcion()
     interfaz.imagen_actual = imagen
-    cv2.namedWindow(NOMBRE_VENTANA, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(NOMBRE_VENTANA, ANCHO_VENTANA, ALTO_VENTANA)
-    cv2.setMouseCallback(NOMBRE_VENTANA, interfaz.mouse)
+    escala_ventana = escala_ventana_para_pantalla()
+    cv2.namedWindow(NOMBRE_VENTANA, cv2.WINDOW_AUTOSIZE)
+
+    def mouse_escalado(evento, x, y, flags, param):
+        interfaz.mouse(evento, int(x / escala_ventana), int(y / escala_ventana), flags, param)
+
+    cv2.setMouseCallback(NOMBRE_VENTANA, mouse_escalado)
 
     try:
         while True:
@@ -461,10 +516,19 @@ def main():
                     interfaz.mensaje = "No se pudo cargar una imagen de la carpeta"
 
             mascaras, blobs = procesar_imagen(interfaz.imagen_actual, interfaz.colores)
+            geometria = calcular_geometria(blobs)
             nombre = archivos[indice].name if archivos else f"Camara {args.camera}"
-            canvas = interfaz.dibujar(interfaz.imagen_actual, mascaras, blobs, pausado, nombre)
+            canvas = interfaz.dibujar(interfaz.imagen_actual, mascaras, blobs,
+                                     pausado, nombre, geometria)
+            if escala_ventana < 1.0:
+                canvas = cv2.resize(canvas,
+                                    (round(ANCHO_VENTANA * escala_ventana),
+                                     round(ALTO_VENTANA * escala_ventana)),
+                                    interpolation=cv2.INTER_AREA)
             cv2.imshow(NOMBRE_VENTANA, canvas)
 
+            if geometria is not None:
+                print(geometria[1])  # Se mantiene la salida numerica del angulo en consola.
             espera = max(1, args.delay) if archivos and not pausado else 25
             tecla = cv2.waitKey(espera) & 0xFF
             if not interfaz.tecla(tecla):
