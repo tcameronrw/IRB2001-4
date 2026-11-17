@@ -194,7 +194,7 @@ def limitar(valor, minimo, maximo):
 
 
 def escala_ventana_para_pantalla() -> float:
-    """Reduce la interfaz solo si no cabe en la pantalla actual."""
+    # Calcla dimensiones de la ventanta, para ver bien los textos
     try:
         import tkinter as tk
         raiz = tk.Tk()
@@ -321,7 +321,7 @@ class InterfazPercepcion:
 
         cv2.line(canvas, (20, 649), (ANCHO_PANEL - 20, 649), (98, 98, 102), 1)
 
-        # Evitar que el mensaje quede cortado por un limite fijo de caracteres.
+        # Evita que el mensaje quede cortado por un limite fijo de caracteres, se añade "..."
         mensaje = self.mensaje
         if cv2.getTextSize(mensaje, cv2.FONT_HERSHEY_SIMPLEX, 0.37, 1)[0][0] > ANCHO_PANEL - 44:
             while cv2.getTextSize(mensaje + "...", cv2.FONT_HERSHEY_SIMPLEX, 0.37, 1)[0][0] > ANCHO_PANEL - 44:
@@ -527,8 +527,6 @@ def main():
                                     interpolation=cv2.INTER_AREA)
             cv2.imshow(NOMBRE_VENTANA, canvas)
 
-            if geometria is not None:
-                print(geometria[1])  # Se mantiene la salida numerica del angulo en consola.
             espera = max(1, args.delay) if archivos and not pausado else 25
             tecla = cv2.waitKey(espera) & 0xFF
             if not interfaz.tecla(tecla):
